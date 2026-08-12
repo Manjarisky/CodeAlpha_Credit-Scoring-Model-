@@ -1,16 +1,38 @@
-# ============================================
+# ============================================================
 # CREDIT SCORING MODEL
-# ============================================
+# ============================================================
+#
+# Objective:
+# Predict whether an individual is likely to experience
+# financial distress using historical financial information.
+#
+# Models:
+# 1. Logistic Regression
+# 2. Decision Tree
+# 3. Random Forest
+#
+# Evaluation:
+# Accuracy
+# Precision
+# Recall
+# F1-Score
+# ROC-AUC
+# ============================================================
 
-# Import libraries
 
-import pandas as pd
+# ============================================================
+# 1. IMPORT LIBRARIES
+# ============================================================
+
 import numpy as np
+import pandas as pd
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split
+
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
 from sklearn.linear_model import LogisticRegression
@@ -28,215 +50,330 @@ from sklearn.metrics import (
     roc_curve
 )
 
+import warnings
 
-# ============================================
-# 1. LOAD DATASET
-# ============================================
+warnings.filterwarnings("ignore")
 
-df = pd.read_csv("credit_data.csv")
 
-print("Dataset loaded successfully!")
-print()
+# ============================================================
+# 2. LOAD DATASET
+# ============================================================
 
-print("First 5 rows:")
+# Load the training dataset.
+df = pd.read_csv("cs-training.csv")
+
+print("=" * 60)
+print("CREDIT SCORING MODEL")
+print("=" * 60)
+
+print("\nDataset loaded successfully!")
+
+print("\nDataset Shape:")
+print(df.shape)
+
+print("\nFirst 5 Rows:")
 print(df.head())
 
-print()
-print("Dataset shape:", df.shape)
 
+# ============================================================
+# 3. DATASET INFORMATION
+# ============================================================
 
-# ============================================
-# 2. DATA UNDERSTANDING
-# ============================================
+print("\n" + "=" * 60)
+print("DATASET INFORMATION")
+print("=" * 60)
 
-print("\nDataset Information:")
 print(df.info())
 
 print("\nStatistical Summary:")
 print(df.describe())
 
 
-# ============================================
-# 3. CHECK MISSING VALUES
-# ============================================
+# ============================================================
+# 4. CLEAN COLUMN NAMES
+# ============================================================
 
-print("\nMissing Values:")
-print(df.isnull().sum())
+# The dataset contains an unnecessary unnamed index column.
+# Remove it if it exists.
+
+if "Unnamed: 0" in df.columns:
+    df = df.drop("Unnamed: 0", axis=1)
 
 
-# ============================================
-# 4. CHECK DUPLICATES
-# ============================================
+# ============================================================
+# 5. CHECK MISSING VALUES
+# ============================================================
 
-print("\nDuplicate rows:", df.duplicated().sum())
+print("\n" + "=" * 60)
+print("MISSING VALUES")
+print("=" * 60)
+
+missing_values = df.isnull().sum()
+
+print(missing_values)
+
+
+# ============================================================
+# 6. CHECK DUPLICATES
+# ============================================================
+
+print("\nDuplicate Rows:")
+print(df.duplicated().sum())
+
+# Remove duplicate rows.
 
 df = df.drop_duplicates()
 
+print("Shape after removing duplicates:")
+print(df.shape)
 
-# ============================================
-# 5. FEATURE ENGINEERING
-# ============================================
 
-# Debt-to-Income Ratio
-# This tells us how large the person's debt is
-# compared with their income.
+# ============================================================
+# 7. TARGET VARIABLE
+# ============================================================
 
-df["debt_to_income"] = (
-    df["debt"] / df["income"]
+# SeriousDlqin2yrs is the target variable.
+#
+# 0 = No serious financial distress
+# 1 = Serious financial distress
+
+target = "SeriousDlqin2yrs"
+
+print("\nTarget Distribution:")
+print(df[target].value_counts())
+
+print("\nTarget Percentage:")
+print(
+    df[target].value_counts(normalize=True) * 100
 )
 
-# Convert payment history into a percentage-based
-# feature.
 
-df["payment_reliability"] = (
-    df["payment_history"] / 100
-)
-
-print("\nNew Features Created:")
-print("debt_to_income")
-print("payment_reliability")
-
-
-# ============================================
-# 6. EXPLORATORY DATA ANALYSIS
-# ============================================
-
-# Creditworthiness distribution
+# ============================================================
+# 8. TARGET DISTRIBUTION GRAPH
+# ============================================================
 
 plt.figure(figsize=(7, 5))
 
 sns.countplot(
     data=df,
-    x="credit_score"
+    x=target
 )
 
-plt.title("Creditworthiness Distribution")
+plt.title("Financial Distress Distribution")
 
-plt.xlabel("Creditworthy")
+plt.xlabel(
+    "Financial Distress Within 2 Years"
+)
 
 plt.ylabel("Number of Customers")
 
 plt.show()
 
 
-# ============================================
-# 7. CORRELATION HEATMAP
-# ============================================
+# ============================================================
+# 9. FEATURE ENGINEERING
+# ============================================================
 
-plt.figure(figsize=(10, 7))
+# Debt-to-income related ratio is already represented by
+# DebtRatio in the dataset.
+#
+# We create additional useful features.
 
-sns.heatmap(
-    df.corr(numeric_only=True),
-    annot=True,
-    cmap="coolwarm"
+df["MonthlyIncomePerDependent"] = (
+    df["MonthlyIncome"] /
+    (df["NumberOfDependents"].fillna(0) + 1)
 )
 
-plt.title("Correlation Heatmap")
+df["TotalPastDue"] = (
+    df["NumberOfTime30-59DaysPastDueNotWorse"] +
+    df["NumberOfTime60-89DaysPastDueNotWorse"] +
+    df["NumberOfTimes90DaysLate"]
+)
 
-plt.show()
+df["TotalOpenCreditLines"] = (
+    df["NumberOfOpenCreditLinesAndLoans"]
+)
+
+print("\nNew Features Created:")
+print("- MonthlyIncomePerDependent")
+print("- TotalPastDue")
+print("- TotalOpenCreditLines")
 
 
-# ============================================
-# 8. DEFINE FEATURES AND TARGET
-# ============================================
+# ============================================================
+# 10. SELECT FEATURES
+# ============================================================
 
 features = [
-    "income",
-    "debt",
-    "payment_history",
-    "credit_utilization",
+
+    "RevolvingUtilizationOfUnsecuredLines",
+
     "age",
-    "loan_count",
-    "debt_to_income",
-    "payment_reliability"
+
+    "NumberOfTime30-59DaysPastDueNotWorse",
+
+    "DebtRatio",
+
+    "MonthlyIncome",
+
+    "NumberOfOpenCreditLinesAndLoans",
+
+    "NumberOfTimes90DaysLate",
+
+    "NumberRealEstateLoansOrLines",
+
+    "NumberOfTime60-89DaysPastDueNotWorse",
+
+    "NumberOfDependents",
+
+    "MonthlyIncomePerDependent",
+
+    "TotalPastDue",
+
+    "TotalOpenCreditLines"
 ]
+
 
 X = df[features]
 
-y = df["credit_score"]
+y = df[target]
 
 
-# ============================================
-# 9. TRAIN TEST SPLIT
-# ============================================
+print("\nNumber of Features:", len(features))
+
+print("\nFeatures:")
+for feature in features:
+    print("-", feature)
+
+
+# ============================================================
+# 11. HANDLE MISSING VALUES
+# ============================================================
+
+# Replace missing numerical values with the median.
+
+imputer = SimpleImputer(
+    strategy="median"
+)
+
+X_imputed = imputer.fit_transform(X)
+
+
+# ============================================================
+# 12. TRAIN TEST SPLIT
+# ============================================================
 
 X_train, X_test, y_train, y_test = train_test_split(
-    X,
+
+    X_imputed,
+
     y,
+
     test_size=0.20,
+
     random_state=42,
+
     stratify=y
 )
 
-print("\nTraining samples:", len(X_train))
-print("Testing samples:", len(X_test))
+
+print("\n" + "=" * 60)
+print("TRAIN TEST SPLIT")
+print("=" * 60)
+
+print(
+    "Training samples:",
+    X_train.shape[0]
+)
+
+print(
+    "Testing samples:",
+    X_test.shape[0]
+)
 
 
-# ============================================
-# 10. FEATURE SCALING
-# ============================================
+# ============================================================
+# 13. FEATURE SCALING
+# ============================================================
 
 scaler = StandardScaler()
 
-X_train_scaled = scaler.fit_transform(X_train)
+X_train_scaled = scaler.fit_transform(
+    X_train
+)
 
-X_test_scaled = scaler.transform(X_test)
+X_test_scaled = scaler.transform(
+    X_test
+)
 
 
-# ============================================
-# 11. CREATE MODELS
-# ============================================
+# ============================================================
+# 14. CREATE MACHINE LEARNING MODELS
+# ============================================================
 
 models = {
 
     "Logistic Regression":
-        LogisticRegression(),
+        LogisticRegression(
+            max_iter=1000,
+            class_weight="balanced"
+        ),
 
     "Decision Tree":
         DecisionTreeClassifier(
-            random_state=42
+            max_depth=8,
+            random_state=42,
+            class_weight="balanced"
         ),
 
     "Random Forest":
         RandomForestClassifier(
-            n_estimators=100,
-            random_state=42
+            n_estimators=150,
+            max_depth=12,
+            random_state=42,
+            class_weight="balanced",
+            n_jobs=-1
         )
 }
 
 
-# ============================================
-# 12. TRAIN AND EVALUATE MODELS
-# ============================================
+# ============================================================
+# 15. TRAIN MODELS
+# ============================================================
 
 results = []
 
 trained_models = {}
 
+probability_predictions = {}
+
+class_predictions = {}
+
+
 for name, model in models.items():
 
     print("\nTraining:", name)
 
-    # Train model
+    # Train model.
 
     model.fit(
         X_train_scaled,
         y_train
     )
 
-    # Predictions
+    # Predict classes.
 
     predictions = model.predict(
         X_test_scaled
     )
 
-    # Probability predictions
+    # Predict probabilities.
 
     probabilities = model.predict_proba(
         X_test_scaled
     )[:, 1]
 
-    # Calculate metrics
+    # Calculate evaluation metrics.
 
     accuracy = accuracy_score(
         y_test,
@@ -245,17 +382,20 @@ for name, model in models.items():
 
     precision = precision_score(
         y_test,
-        predictions
+        predictions,
+        zero_division=0
     )
 
     recall = recall_score(
         y_test,
-        predictions
+        predictions,
+        zero_division=0
     )
 
     f1 = f1_score(
         y_test,
-        predictions
+        predictions,
+        zero_division=0
     )
 
     roc_auc = roc_auc_score(
@@ -263,7 +403,7 @@ for name, model in models.items():
         probabilities
     )
 
-    # Store results
+    # Store results.
 
     results.append({
 
@@ -275,31 +415,56 @@ for name, model in models.items():
 
         "Recall": recall,
 
-        "F1 Score": f1,
+        "F1-Score": f1,
 
         "ROC-AUC": roc_auc
+
     })
 
     trained_models[name] = model
 
+    probability_predictions[name] = probabilities
 
-# ============================================
-# 13. MODEL COMPARISON
-# ============================================
+    class_predictions[name] = predictions
+
+
+# ============================================================
+# 16. MODEL COMPARISON
+# ============================================================
 
 results_df = pd.DataFrame(results)
 
-print("\nModel Comparison:")
-print(results_df)
+results_df = results_df.sort_values(
+    by="ROC-AUC",
+    ascending=False
+)
+
+print("\n" + "=" * 60)
+print("MODEL COMPARISON")
+print("=" * 60)
+
+print(
+    results_df.to_string(index=False)
+)
 
 
-# ============================================
-# 14. VISUALIZE MODEL PERFORMANCE
-# ============================================
+# ============================================================
+# 17. MODEL COMPARISON GRAPH
+# ============================================================
 
-results_df.set_index(
+results_plot = results_df.set_index(
     "Model"
-).plot(
+)[
+    [
+        "Accuracy",
+        "Precision",
+        "Recall",
+        "F1-Score",
+        "ROC-AUC"
+    ]
+]
+
+results_plot.plot(
     kind="bar",
     figsize=(12, 6)
 )
@@ -314,66 +479,95 @@ plt.ylim(0, 1)
 
 plt.xticks(rotation=0)
 
-plt.legend(
-    bbox_to_anchor=(1.05, 1),
-    loc="upper left"
-)
-
 plt.tight_layout()
 
 plt.show()
 
 
-# ============================================
-# 15. SELECT BEST MODEL
-# ============================================
+# ============================================================
+# 18. SELECT BEST MODEL
+# ============================================================
 
-best_model_name = results_df.sort_values(
-    by="F1 Score",
-    ascending=False
-).iloc[0]["Model"]
+best_model_name = results_df.iloc[0]["Model"]
 
 best_model = trained_models[
     best_model_name
 ]
 
-print("\nBest Model:", best_model_name)
+best_predictions = class_predictions[
+    best_model_name
+]
+
+best_probabilities = probability_predictions[
+    best_model_name
+]
 
 
-# ============================================
-# 16. DETAILED EVALUATION
-# ============================================
+print("\n" + "=" * 60)
 
-best_predictions = best_model.predict(
-    X_test_scaled
-)
+print("BEST MODEL")
 
-print("\nClassification Report:")
+print("=" * 60)
 
 print(
-    classification_report(
-        y_test,
-        best_predictions
+    "Best Model:",
+    best_model_name
+)
+
+print(
+    "ROC-AUC:",
+    round(
+        results_df.iloc[0]["ROC-AUC"],
+        4
     )
 )
 
 
-# ============================================
-# 17. CONFUSION MATRIX
-# ============================================
+# ============================================================
+# 19. CLASSIFICATION REPORT
+# ============================================================
+
+print("\n" + "=" * 60)
+print("CLASSIFICATION REPORT")
+print("=" * 60)
+
+print(
+    classification_report(
+        y_test,
+        best_predictions,
+        target_names=[
+            "No Financial Distress",
+            "Financial Distress"
+        ],
+        zero_division=0
+    )
+)
+
+
+# ============================================================
+# 20. CONFUSION MATRIX
+# ============================================================
 
 cm = confusion_matrix(
     y_test,
     best_predictions
 )
 
-plt.figure(figsize=(6, 5))
+plt.figure(figsize=(7, 5))
 
 sns.heatmap(
     cm,
     annot=True,
     fmt="d",
-    cmap="Blues"
+    cmap="Blues",
+    xticklabels=[
+        "No Distress",
+        "Distress"
+    ],
+    yticklabels=[
+        "No Distress",
+        "Distress"
+    ]
 )
 
 plt.title(
@@ -387,13 +581,9 @@ plt.ylabel("Actual")
 plt.show()
 
 
-# ============================================
-# 18. ROC CURVE
-# ============================================
-
-best_probabilities = best_model.predict_proba(
-    X_test_scaled
-)[:, 1]
+# ============================================================
+# 21. ROC CURVE
+# ============================================================
 
 fpr, tpr, thresholds = roc_curve(
     y_test,
@@ -405,12 +595,12 @@ auc_score = roc_auc_score(
     best_probabilities
 )
 
-plt.figure(figsize=(7, 6))
+plt.figure(figsize=(8, 6))
 
 plt.plot(
     fpr,
     tpr,
-    label=f"AUC = {auc_score:.2f}"
+    label=f"ROC-AUC = {auc_score:.3f}"
 )
 
 plt.plot(
@@ -419,27 +609,33 @@ plt.plot(
     linestyle="--"
 )
 
-plt.xlabel("False Positive Rate")
+plt.xlabel(
+    "False Positive Rate"
+)
 
-plt.ylabel("True Positive Rate")
+plt.ylabel(
+    "True Positive Rate"
+)
 
-plt.title("ROC Curve")
+plt.title(
+    "ROC Curve"
+)
 
 plt.legend()
 
 plt.show()
 
 
-# ============================================
-# 19. FEATURE IMPORTANCE
-# ============================================
+# ============================================================
+# 22. FEATURE IMPORTANCE
+# ============================================================
 
 if hasattr(
     best_model,
     "feature_importances_"
 ):
 
-    importance = pd.DataFrame({
+    importance_df = pd.DataFrame({
 
         "Feature": features,
 
@@ -448,93 +644,137 @@ if hasattr(
 
     })
 
-    importance = importance.sort_values(
+    importance_df = importance_df.sort_values(
         by="Importance",
         ascending=False
     )
 
-    print("\nFeature Importance:")
+    print("\n" + "=" * 60)
 
-    print(importance)
+    print("FEATURE IMPORTANCE")
 
-    plt.figure(figsize=(9, 6))
+    print("=" * 60)
+
+    print(
+        importance_df.to_string(
+            index=False
+        )
+    )
+
+    plt.figure(
+        figsize=(10, 7)
+    )
 
     sns.barplot(
-        data=importance,
+        data=importance_df,
         x="Importance",
         y="Feature"
     )
 
     plt.title(
-        "Feature Importance"
+        f"Feature Importance - {best_model_name}"
     )
 
     plt.show()
 
 
-# ============================================
-# 20. SAMPLE CREDIT PREDICTION
-# ============================================
+# ============================================================
+# 23. SAMPLE CUSTOMER PREDICTION
+# ============================================================
+
+# Example customer information.
 
 sample_customer = pd.DataFrame({
 
-    "income": [60000],
+    "RevolvingUtilizationOfUnsecuredLines":
+        [0.25],
 
-    "debt": [10000],
+    "age":
+        [35],
 
-    "payment_history": [95],
+    "NumberOfTime30-59DaysPastDueNotWorse":
+        [0],
 
-    "credit_utilization": [25],
+    "DebtRatio":
+        [0.30],
 
-    "age": [32],
+    "MonthlyIncome":
+        [5000],
 
-    "loan_count": [2],
+    "NumberOfOpenCreditLinesAndLoans":
+        [5],
 
-    "debt_to_income": [
-        10000 / 60000
-    ],
+    "NumberOfTimes90DaysLate":
+        [0],
 
-    "payment_reliability": [
-        95 / 100
-    ]
+    "NumberRealEstateLoansOrLines":
+        [1],
+
+    "NumberOfTime60-89DaysPastDueNotWorse":
+        [0],
+
+    "NumberOfDependents":
+        [2],
+
+    "MonthlyIncomePerDependent":
+        [5000 / 3],
+
+    "TotalPastDue":
+        [0],
+
+    "TotalOpenCreditLines":
+        [5]
 })
 
 
-sample_scaled = scaler.transform(
+# Apply the same preprocessing.
+
+sample_imputed = imputer.transform(
     sample_customer
 )
 
+sample_scaled = scaler.transform(
+    sample_imputed
+)
+
+
+# Make prediction.
 
 prediction = best_model.predict(
     sample_scaled
 )[0]
-
 
 probability = best_model.predict_proba(
     sample_scaled
 )[0][1]
 
 
-print("\n===================================")
+# ============================================================
+# 24. FINAL PREDICTION
+# ============================================================
 
-print("CREDIT SCORING RESULT")
+print("\n" + "=" * 60)
 
-print("===================================")
+print("CREDIT RISK PREDICTION")
+
+print("=" * 60)
 
 if prediction == 1:
 
     print(
-        "Creditworthiness: CREDITWORTHY"
+        "Prediction: HIGHER FINANCIAL RISK"
     )
 
 else:
 
     print(
-        "Creditworthiness: NOT CREDITWORTHY"
+        "Prediction: LOWER FINANCIAL RISK"
     )
 
 
 print(
-    f"Creditworthiness Probability: "
+    f"Predicted Risk Probability: "
     f"{probability * 100:.2f}%"
 )
+
+print("=" * 60)
